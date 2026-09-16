@@ -29,11 +29,75 @@ The complete workflow is:
 Raw videos --> CLIP frame features --+--> noun alignment --> noun priors ----+
                                      +--> verb alignment --> verb priors ----+
 Training captions --> CLIP text -----+--> topic aggregation --> topic bank --+
-Original CLIP frame features --------------------------------------------->GTL-ViCap training
-                                                           
+Original CLIP frame features ------------------------------------------------+
+                                                                             v
+                                                           GTL-ViCap training
 ```
 
 > **Implementation note:** this repository preserves its existing training-free topic aggregation algorithm: seeded random center selection, nearest-center assignment, and inverse-distance weighted aggregation. This implementation is not DPC-KNN.
+
+## Network Architecture
+
+```mermaid
+flowchart LR
+    subgraph OFFLINE[Offline Semantic-Prior Preparation]
+        direction TB
+
+        VIDEO[Input Video] --> CLIPV[Frozen CLIP Video Encoder]
+        CLIPV --> FRAME[17 Frame Features<br/>17 x 512]
+
+        CAPTION[Training Captions] --> POS[POS Extraction]
+        POS --> NOUNTXT[Noun Text]
+        POS --> VERBTXT[Verb Text]
+        NOUNTXT --> CLIPTN[Frozen CLIP Text Encoder]
+        VERBTXT --> CLIPTV[Frozen CLIP Text Encoder]
+
+        FRAME --> NOUNALIGN[Noun Alignment Module<br/>Temporal Transformer and Projection]
+        FRAME --> VERBALIGN[Verb Alignment Module<br/>Temporal Transformer and Projection]
+        CLIPTN -. Symmetric InfoNCE .-> NOUNALIGN
+        CLIPTV -. Symmetric InfoNCE .-> VERBALIGN
+        NOUNALIGN --> NOUNPRIOR[Noun Prior<br/>1 x 512]
+        VERBALIGN --> VERBPRIOR[Verb Prior<br/>1 x 512]
+
+        CAPTION --> CLIPTC[Frozen CLIP Text Encoder]
+        CLIPTC --> TEXTEMB[Caption Embeddings]
+        TEXTEMB --> AGG[Training-Free Topic Aggregation<br/>Random Centers and Inverse-Distance Weighting]
+        AGG --> TOPICBANK[Topic Bank<br/>1000 x 512]
+    end
+
+    subgraph CAPTIONING[GTL-ViCap Caption Model]
+        direction TB
+
+        FRAME --> MASKMEAN[Masked Mean Pooling]
+        MASKMEAN --> RETRIEVAL[Cosine-Similarity Top-K Retrieval]
+        TOPICBANK --> RETRIEVAL
+        RETRIEVAL --> TOPICPRIOR[Topic Prior<br/>1 x 512]
+
+        TOPICPRIOR --> CONCAT[Token Concatenation]
+        NOUNPRIOR --> CONCAT
+        VERBPRIOR --> CONCAT
+        FRAME --> CONCAT
+
+        CONCAT --> SEQUENCE[Topic, Noun, Verb, 17 Frame Tokens<br/>20 x 512]
+        SEQUENCE --> VENC[2-Layer Transformer Video Encoder]
+        VENC --> ENCODED[Contextualized Visual Features]
+        ENCODED --> TDEC[2-Layer Transformer Text Decoder]
+        PREV[Previous Caption Tokens] --> TDEC
+        TDEC --> OUTPUT[Generated Video Caption]
+    end
+
+    classDef input fill:#e8f1ff,stroke:#2457a7,color:#111;
+    classDef prior fill:#fff2cc,stroke:#a36b00,color:#111;
+    classDef model fill:#e8f5e9,stroke:#2e7d32,color:#111;
+    classDef output fill:#fce4ec,stroke:#ad1457,color:#111;
+
+    class VIDEO,CAPTION,PREV input;
+    class NOUNPRIOR,VERBPRIOR,TOPICBANK,TOPICPRIOR prior;
+    class CLIPV,CLIPTN,CLIPTV,CLIPTC,NOUNALIGN,VERBALIGN,AGG,RETRIEVAL,VENC,TDEC model;
+    class OUTPUT output;
+```
+
+The noun and verb branches are trained before the caption model. Their CLIP encoders remain frozen, while the alignment Transformers and projection layers are optimized with symmetric InfoNCE. Topic aggregation is parameter-free. During caption training and inference, only the original frame tokens are used to retrieve a topic; the retrieved topic, noun prior, verb prior, and frame tokens are then concatenated before the video encoder.
 
 ## Repository Layout
 
