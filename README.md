@@ -29,9 +29,8 @@ The complete workflow is:
 Raw videos --> CLIP frame features --+--> noun alignment --> noun priors ----+
                                      +--> verb alignment --> verb priors ----+
 Training captions --> CLIP text -----+--> topic aggregation --> topic bank --+
-Original CLIP frame features ------------------------------------------------+
-                                                                             v
-                                                           GTL-ViCap training
+Original CLIP frame features --------------------------------------------->GTL-ViCap training
+                                                           
 ```
 
 > **Implementation note:** this repository preserves its existing training-free topic aggregation algorithm: seeded random center selection, nearest-center assignment, and inverse-distance weighted aggregation. This implementation is not DPC-KNN.
